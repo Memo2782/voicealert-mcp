@@ -1,0 +1,33 @@
+# .github/workflows/main.yml
+name: VoiceAlert Core Pipeline CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {} # Adds a manual web trigger button
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code from Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11 Runtime Environment
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Application Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install fastmcp fastapi uvicorn python-dotenv httpx typer "mcp[cli]"
+
+    - name: Run Automated System Unit Tests
+      run: |
+        export PYTHONPATH=".:$PYTHONPATH"
+        python3 tests/test_mcp.py
+
