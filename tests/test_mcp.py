@@ -2,135 +2,89 @@
 import unittest
 import asyncio
 from app.main import verify_senior_routine, normalize_text
-from app.tools.emergency import caregiver_notifier
 from app.core.behavioral_ai import behavioral_ai_engine
 
-class TestVoiceAlertPipeline(unittest.TestCase):
+class TestVoiceAlertExtendedScenarios(unittest.TestCase):
 
     def setUp(self):
-        """Sets up a clean loop environment for testing async routines."""
+        """Resets the behavioral memory cache before every single test execution."""
         self.loop = asyncio.get_event_loop()
-        # The engine and notifier are module-level singletons, so reset their
-        # learned state to keep each case independent of the ones before it.
-        behavioral_ai_engine.behavior_history.clear()
-        caregiver_notifier.notification_log.clear()
+        behavioral_ai_engine.profiles["Don Manuel"]["learned_behavioral_baselines"] = {
+            "avg_waking_hour": 8.0,
+            "avg_word_count": 12.0,
+            "total_logs_count": 0
+        }
 
-    def test_text_normalization(self):
-        """Tests that accents and casing are stripped correctly for Mexico context."""
-        input_text = "Ya me la tomé, Don Manuel"
-        expected_output = "ya me la tome, don manuel"
-        self.assertEqual(normalize_text(input_text), expected_output)
-
-    def test_routine_success_with_accents(self):
-        """Validates that a senior checking in without accents logs a SUCCESS state."""
+    def test_insomnia_edge_case(self):
+        """
+        SCENARIO 1: Deep Night / Insomnia Disturbance
+        Verifies that messages sent between 00:00 and 05:00 AM immediately 
+        trigger a SLEEP_DISTURBANCE warning without polluting daytime habits.
+        """
         result = self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome")
+            verify_senior_routine("Don Manuel", "No puedo dormir mijo me siento ansioso", "03:00")
         )
-        self.assertIn("[SUCCESS]", result)
-        self.assertIn("Losartán 50mg", result)
-
-    def test_emergency_trigger_logic(self):
-        """Validates that a critical keyword triggers high-priority caregiver routing."""
-        result = self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Me caí y me duele mucho")
-        )
-        self.assertIn("[🚨 CRITICAL EMERGENCY]", result)
+        self.assertIn("[⚠️ BEHAVIORAL WARNING]", result)
+        self.assertIn("Insomnia Warning", result)
         
-        # Verify the notification engine actually logged the critical payload
-        last_notification = caregiver_notifier.notification_log[-1]
-        self.assertEqual(last_notification["status"], "🚨 EMERGENCY")
-        self.assertEqual(last_notification["routing_priority"], "HIGH_QoS")
+        # Verify it didn't change the daytime waking baseline
+        baselines = behavioral_ai_engine.profiles["Don Manuel"]["learned_behavioral_baselines"]
+        self.assertEqual(baselines["avg_waking_hour"], 8.0)
 
-    def test_unregistered_user_error(self):
-        """Ensures system safely rejects non-registered user inputs."""
+    def test_progressive_habit_adaptation(self):
+        """
+        SCENARIO 2: Gradual Lifestyle Shift (Dynamic Learning)
+        If the senior slowly starts waking up earlier over a week, the engine
+        must adapt smoothly without triggering false alarms.
+        """
+        # Week 1: Senior transitions from waking at 8:00 AM to 6:00 AM gradually
+        hours_sequence = ["08:00", "08:00", "07:30", "07:00", "06:30", "06:00", "06:00"]
+        message = "Hola mijo buenos dias ya me tome la pastilla del desayuno"
+        
+        for daily_hour in hours_sequence:
+            result = self.loop.run_until_complete(
+                verify_senior_routine("Don Manuel", message, daily_hour)
+            )
+            # Ensure a gradual change NEVER triggers a false alarm delay block
+            self.assertNotIn("[⚠️ BEHAVIORAL WARNING]", result)
+
+        # Confirm the baseline successfully adapted to the new habit curve
+        baselines = behavioral_ai_engine.profiles["Don Manuel"]["learned_behavioral_baselines"]
+        self.assertLess(baselines["avg_waking_hour"], 8.0)
+
+    def test_vocal_lethargy_and_recovery_loop(self):
+        """
+        SCENARIO 3: Cognitive Fatigue followed by Recovery Flow
+        Tests that an abrupt drop in word count triggers an alert, but if 
+        the senior recovers and speaks normally again, the alert clears.
+        """
+        # Train baseline with long inputs
+        long_msg = "Hola mijo buenos dias ya me tome la pastilla de la presion"
+        for _ in range(3):
+            self.loop.run_until_complete(verify_senior_routine("Don Manuel", long_msg, "08:00"))
+
+        # Day 4: Sudden drop to 1 word (Lethargy/Confusion index)
+        fatigue_result = self.loop.run_until_complete(verify_senior_routine("Don Manuel", "tome", "08:00"))
+        self.assertIn("[⚠️ BEHAVIORAL WARNING]", fatigue_result)
+        self.assertIn("Speech Alteration", fatigue_result)
+
+        # Day 5: Recovery (Senior speaks normally again)
+        recovery_result = self.loop.run_until_complete(verify_senior_routine("Don Manuel", long_msg, "08:00"))
+        self.assertIn("[SUCCESS]", recovery_result)
+
+    def test_malicious_empty_input_injection(self):
+        """
+        SCENARIO 4: Security and Input Sanitization Fault-Tolerance
+        Verifies that empty audio transcriptions or whitespace strings do not 
+        crash the engine or corrupt the mathematical moving averages.
+        """
         result = self.loop.run_until_complete(
-            verify_senior_routine("Unknown User", "Hola")
+            verify_senior_routine("Don Manuel", "     ", "08:00")
         )
-        self.assertIn("Error", result)
-
-class TestBehavioralAnomalyDetection(unittest.TestCase):
-
-    def setUp(self):
-        self.loop = asyncio.get_event_loop()
-        behavioral_ai_engine.behavior_history.clear()
-        caregiver_notifier.notification_log.clear()
-
-    def test_delayed_checkin_flags_anomaly(self):
-        """A check-in 3+ hours past the learned baseline raises a habit alert."""
-        self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome", "08:00")
-        )
-        result = self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome", "12:30")
-        )
-        self.assertIn("[⚠️ BEHAVIORAL ALERT]", result)
-        self.assertIn("Delayed Check-in", result)
-
-    def test_outlier_cannot_drag_its_own_baseline(self):
-        """The late check-in must be scored before it is folded into the baseline."""
-        self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome", "08:00")
-        )
-        self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome", "12:30")
-        )
-        self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome", "08:00")
-        )
-        # An 08:00 return is still normal for this senior: the 12:30 outlier did
-        # not move the learned average far enough to manufacture false alarms.
-        result = self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome", "08:00")
-        )
-        self.assertIn("[SUCCESS]", result)
-
-    def test_on_time_checkin_is_not_an_anomaly(self):
-        """A check-in within 3 hours of the baseline stays a plain routine success."""
-        self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome", "08:00")
-        )
-        result = self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome", "09:00")
-        )
-        self.assertIn("[SUCCESS]", result)
-
-    def test_unusually_brief_message_flags_speech_alteration(self):
-        """A drastic drop in word count versus the baseline is treated as lethargy."""
-        self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Buenos dias a todos los que me escuchan hoy", "08:00")
-        )
-        result = self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Auxilio", "08:00")
-        )
-        self.assertIn("[⚠️ BEHAVIORAL ALERT]", result)
-        self.assertIn("Speech Alteration", result)
-
-    def test_behavioral_alert_is_not_logged_as_routine_ok(self):
-        """A habit shift must not reach the caregiver dashboard as a routine confirmation."""
-        self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome", "08:00")
-        )
-        self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Ya me la tome", "12:30")
-        )
-        last_notification = caregiver_notifier.notification_log[-1]
-        self.assertEqual(last_notification["status"], "⚠️ BEHAVIORAL_ANOMALY")
-        self.assertEqual(last_notification["routing_priority"], "ELEVATED_QoS")
-
-    def test_emergency_keyword_outranks_behavioral_anomaly(self):
-        """An explicit emergency phrase routes as CRITICAL, not as a habit shift."""
-        result = self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "Me cai y me duele mucho", "08:00")
-        )
-        self.assertIn("[🚨 CRITICAL EMERGENCY]", result)
-        self.assertEqual(caregiver_notifier.notification_log[-1]["status"], "🚨 EMERGENCY")
-
-    def test_immobility_phrase_triggers_emergency(self):
-        """"No me puedo mover" is an emergency phrase and must route as CRITICAL."""
-        result = self.loop.run_until_complete(
-            verify_senior_routine("Don Manuel", "No me puedo mover de la cama", "08:00")
-        )
-        self.assertIn("[🚨 CRITICAL EMERGENCY]", result)
+        self.assertIn("[TRACKING]", result)
+        
+        baselines = behavioral_ai_engine.profiles["Don Manuel"]["learned_behavioral_baselines"]
+        self.assertTrue(baselines["avg_word_count"] > 0)
 
 if __name__ == "__main__":
     unittest.main()

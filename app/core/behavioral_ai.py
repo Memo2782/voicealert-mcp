@@ -4,28 +4,35 @@ from app.database.mock_db import ABUELITOS_DB
 
 class ExtendedBehavioralEngine:
     def __init__(self):
-        # Local mirror mapping to track active live profiles
         self.profiles = ABUELITOS_DB
 
     def train_baseline_data(self, name: str, checkin_time_str: str, message_text: str) -> Dict[str, Any]:
         """
-        Runs on every check-in. Automatically adjusts the senior's baseline habits 
-        using moving mathematical averages with zero manual code updates required.
+        Runs on every check-in. Adjusts habits using moving mathematical averages.
+        Includes validation guards to protect averages from corrupt empty inputs.
         """
         senior = self.profiles.get(name)
         if not senior:
             return {}
 
         baselines = senior["learned_behavioral_baselines"]
-        word_count = len(message_text.split())
+        
+        # Clean whitespaces and calculate true words
+        words_list = [w for i, w in enumerate(message_text.split()) if w.strip()]
+        word_count = len(words_list)
+        
+        # 🛡️ SANITIZATION GUARD: Completely ignore empty text inputs or silent voice notes
+        if word_count == 0:
+            return baselines
+
         hour = int(checkin_time_str.split(":")[0])
 
-        # Exclude late-night/insomnia texts (00:00 - 05:00) from polluting their morning wake-up average
+        # Exclude late-night/insomnia texts (00:00 - 05:00) from normal morning averages
         if hour >= 5:
             baselines["total_logs_count"] += 1
             n = baselines["total_logs_count"]
             
-            # Recalculate moving averages on the fly
+            # Recalculate moving averages cleanly on the fly
             baselines["avg_waking_hour"] = ((baselines["avg_waking_hour"] * (n - 1)) + hour) / n
             baselines["avg_word_count"] = ((baselines["avg_word_count"] * (n - 1)) + word_count) / n
 
@@ -44,7 +51,14 @@ class ExtendedBehavioralEngine:
         thresholds = senior["anomaly_thresholds"]
         
         hour = int(checkin_time_str.split(":")[0])
-        word_count = len(message_text.split())
+        
+        # Clean whitespaces and calculate true words
+        words_list = [w for i, w in enumerate(message_text.split()) if w.strip()]
+        word_count = len(words_list)
+
+        # 🛡️ SANITIZATION GUARD: If message is empty, don't trigger anomalies, skip downstream calculation
+        if word_count == 0:
+            return {"is_anomaly": False, "type": "NORMAL", "reason": "Empty text skipped during evaluation."}
 
         # 🚩 MATRIX 1: Late-Night Insomnia / Anxious Disruption Alert
         if 0 <= hour < 5:
@@ -63,7 +77,6 @@ class ExtendedBehavioralEngine:
             }
 
         # 🚩 MATRIX 3: Severe Vocal/Speech Volumetric Drop (Confusion or Lethargy Indicators)
-        # Only checks if a baseline history exists (logs count > 0)
         if baselines["total_logs_count"] > 0 and word_count <= (baselines["avg_word_count"] * thresholds["speech_drop_percentage"]):
             return {
                 "is_anomaly": True,
