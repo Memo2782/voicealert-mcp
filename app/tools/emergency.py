@@ -25,7 +25,18 @@ class CaregiverNotificationEngine:
             print(f"\n[🚨 ALERTA CRÍTICA] Discharging instant Push Notification to caregiver at {destination_phone}!")
             print(f"[📡 TELEMETRY] Dispatching payload under High Priority constraints.")
             
-        # Tier 2: ROUTINE MEDICATION STATUS UPDATE
+        # Tier 2: BEHAVIORAL ANOMALY - habit shift, not a routine confirmation
+        elif alert_type == "ROUTINE_ANOMALY":
+            payload = {
+                "status": "⚠️ BEHAVIORAL_ANOMALY",
+                "title": f"Habit Shift: {senior_name} deviates from their baseline",
+                "body": raw_message,
+                "timestamp": timestamp,
+                "routing_priority": "ELEVATED_QoS"
+            }
+            print(f"\n[⚠️ ANOMALÍA] Caregiver dashboard flagged a behavior shift for {senior_name}.")
+
+        # Tier 3: ROUTINE MEDICATION STATUS UPDATE
         else:
             payload = {
                 "status": "💚 ROUTINE_OK",
