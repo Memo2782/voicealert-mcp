@@ -1,78 +1,76 @@
 # app/core/behavioral_ai.py
 from typing import Dict, Any
+from app.database.mock_db import ABUELITOS_DB
 
-# Baseline applied to a senior before any history exists. Scored against, never mutated.
-DEFAULT_BASELINE = {
-    "expected_checkin_hour": 8,  # Default: 8:00 AM
-    "average_word_count": 5.0
-}
-
-class SeniorBehavioralEngine:
+class ExtendedBehavioralEngine:
     def __init__(self):
-        # Local memory cache to store historical check-in times and sentiments
-        self.behavior_history = {}
+        # Local mirror mapping to track active live profiles
+        self.profiles = ABUELITOS_DB
 
-    def learn_checkin_baseline(self, senior_name: str, current_checkin_time: str, word_count: int) -> Dict[str, Any]:
+    def train_baseline_data(self, name: str, checkin_time_str: str, message_text: str) -> Dict[str, Any]:
         """
-        Folds the newest check-in into the senior's running baseline via a simple
-        moving average. Must be called *after* analyze_vocal_anomaly: learning first
-        would let a late or terse check-in drag the baseline toward itself and mask
-        the very anomaly it should raise.
+        Runs on every check-in. Automatically adjusts the senior's baseline habits 
+        using moving mathematical averages with zero manual code updates required.
         """
-        profile = self.behavior_history.setdefault(senior_name, {
-            "expected_checkin_hour": DEFAULT_BASELINE["expected_checkin_hour"],
-            "average_word_count": DEFAULT_BASELINE["average_word_count"],
-            "total_checkins_logged": 0,
-            "consecutive_anomalies": 0
-        })
+        senior = self.profiles.get(name)
+        if not senior:
+            return {}
 
-        # Parse current check-in hour
-        current_hour = int(current_checkin_time.split(":")[0])
+        baselines = senior["learned_behavioral_baselines"]
+        word_count = len(message_text.split())
+        hour = int(checkin_time_str.split(":")[0])
 
-        profile["total_checkins_logged"] += 1
-        n = profile["total_checkins_logged"]
+        # Exclude late-night/insomnia texts (00:00 - 05:00) from polluting their morning wake-up average
+        if hour >= 5:
+            baselines["total_logs_count"] += 1
+            n = baselines["total_logs_count"]
+            
+            # Recalculate moving averages on the fly
+            baselines["avg_waking_hour"] = ((baselines["avg_waking_hour"] * (n - 1)) + hour) / n
+            baselines["avg_word_count"] = ((baselines["avg_word_count"] * (n - 1)) + word_count) / n
 
-        profile["expected_checkin_hour"] = ((profile["expected_checkin_hour"] * (n - 1)) + current_hour) / n
-        profile["average_word_count"] = ((profile["average_word_count"] * (n - 1)) + word_count) / n
+        return baselines
 
-        return profile
-
-    def analyze_vocal_anomaly(self, senior_name: str, voice_text: str, current_time_str: str) -> Dict[str, Any]:
+    def analyze_behavioral_safety(self, name: str, checkin_time_str: str, message_text: str) -> Dict[str, Any]:
         """
-        Scores a check-in against the habits already learned from previous check-ins.
-        Never folds the current check-in into the baseline it is compared against, so
-        a single outlier cannot normalize itself away.
+        Evaluates the current interaction data point against historical patterns 
+        to detect hidden anomalies (Sleep disturbances, Lethargy, Delayed Waking).
         """
-        learned = self.behavior_history.get(senior_name)
-        expected_hour = learned["expected_checkin_hour"] if learned else DEFAULT_BASELINE["expected_checkin_hour"]
-        average_words = learned["average_word_count"] if learned else DEFAULT_BASELINE["average_word_count"]
+        senior = self.profiles.get(name)
+        if not senior:
+            return {"is_anomaly": False, "reason": "User not found"}
 
-        current_hour = int(current_time_str.split(":")[0])
-        words = len(voice_text.split())
+        baselines = senior["learned_behavioral_baselines"]
+        thresholds = senior["anomaly_thresholds"]
+        
+        hour = int(checkin_time_str.split(":")[0])
+        word_count = len(message_text.split())
 
-        is_anomaly = False
-        reason = "Normal Behavior"
+        # 🚩 MATRIX 1: Late-Night Insomnia / Anxious Disruption Alert
+        if 0 <= hour < 5:
+            return {
+                "is_anomaly": True,
+                "type": "SLEEP_DISTURBANCE",
+                "reason": f"Insomnia Warning: Abnormal check-in detected at {checkin_time_str} AM."
+            }
 
-        # Anomaly Condition 1: Check-in hour is 3+ hours later than their learned average
-        if current_hour > (expected_hour + 3):
-            is_anomaly = True
-            reason = f"Delayed Check-in: Senior usually checks in around {int(expected_hour)}:00 AM."
+        # 🚩 MATRIX 2: Delayed Check-In (Potential Fall or Non-Responsive)
+        if hour > (baselines["avg_waking_hour"] + thresholds["max_allowed_delay_hours"]):
+            return {
+                "is_anomaly": True,
+                "type": "DELAYED_WAKING",
+                "reason": f"Delayed Waking: Checked in at {checkin_time_str}. Normal baseline is {round(baselines['avg_waking_hour'], 1)}:00 AM."
+            }
 
-        # Anomaly Condition 2: Drastic reduction in words (potential lethargy or confusion)
-        elif words < (average_words * 0.3) and words > 0:
-            is_anomaly = True
-            reason = "Speech Alteration: Message is unusually brief compared to their normal baseline."
+        # 🚩 MATRIX 3: Severe Vocal/Speech Volumetric Drop (Confusion or Lethargy Indicators)
+        # Only checks if a baseline history exists (logs count > 0)
+        if baselines["total_logs_count"] > 0 and word_count <= (baselines["avg_word_count"] * thresholds["speech_drop_percentage"]):
+            return {
+                "is_anomaly": True,
+                "type": "LETHARGY_DETECTOR",
+                "reason": f"Speech Alteration: Message volume dropped to {word_count} words. Baseline average is {round(baselines['avg_word_count'], 1)} words."
+            }
 
-        if learned:
-            learned["consecutive_anomalies"] = learned["consecutive_anomalies"] + 1 if is_anomaly else 0
+        return {"is_anomaly": False, "type": "NORMAL", "reason": "Behavior consistent with baseline patterns."}
 
-        return {
-            "is_behavioral_anomaly": is_anomaly,
-            "reason": reason,
-            "consecutive_flags": learned["consecutive_anomalies"] if learned else 0,
-            "learned_expected_hour": round(expected_hour, 1)
-        }
-
-# Instantiate global engine
-behavioral_ai_engine = SeniorBehavioralEngine()
-
+behavioral_ai_engine = ExtendedBehavioralEngine()

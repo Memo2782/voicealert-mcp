@@ -1,20 +1,29 @@
 # app/database/mock_db.py
+
 ABUELITOS_DB = {
     "Don Manuel": {
-        "age": 72,
-        "city": "Ecatepec, EDOMEX",
-        "medication": "Losartán 50mg (Blood Pressure)",
-        "schedule": "08:30 AM",
-        "caregiver_phone": "+525512345678",
-        "slice_5g_id": "SLICE-URLLC-MED-01"
-    },
-    "Doña Martha": {
-        "age": 68,
-        "city": "CDMX",
-        "medication": "Metformina 850mg (Diabetes)",
-        "schedule": "09:00 AM",
-        "caregiver_phone": "+525587654321",
-        "slice_5g_id": "SLICE-URLLC-DIA-02"
+        "demographics": {
+            "age": 72,
+            "city": "Ecatepec, EDOMEX",
+            "living_situation": "Lives Alone"
+        },
+        "caregiver_routing": {
+            "son_name": "Guillermo Pineda",
+            "caregiver_phone": "+525512345678"
+        },
+        "medical_baseline": {
+            "critical_medication": "Losartán 50mg (Blood Pressure)",
+            "expected_intake_window": "08:00 AM - 09:30 AM"
+        },
+        "learned_behavioral_baselines": {
+            "avg_waking_hour": 8.0,          # Learns normal morning wake-up time
+            "avg_word_count": 12.0,          # Learns normal talking message length
+            "total_logs_count": 0
+        },
+        "anomaly_thresholds": {
+            "max_allowed_delay_hours": 2.5,  # Alert if 2.5 hours past typical time
+            "speech_drop_percentage": 0.40   # Alert if speech drops below 40% of standard volume
+        }
     }
 }
 

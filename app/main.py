@@ -3,7 +3,7 @@ import unicodedata
 from mcp.server.mcpserver import MCPServer
 from app.database.mock_db import ABUELITOS_DB
 from app.tools.emergency import caregiver_notifier
-from app.core.behavioral_ai import behavioral_ai_engine  # Linking Behavioral AI
+from app.core.behavioral_ai import behavioral_ai_engine
 
 mcp = MCPServer("VoiceAlert-MX")
 
@@ -16,53 +16,43 @@ def normalize_text(text: str) -> str:
 @mcp.tool()
 async def verify_senior_routine(name: str, voice_text: str, current_time: str = "08:30") -> str:
     """
-    Primary Function: Processes check-ins, normalizes text, analyzes behavioral habits,
-    and updates caregiver telemetry when anomalies occur.
+    Primary Function: Manages conversational text feeds, screens for safety triggers,
+    and uses zero-cost background analytics to log behavioral trajectories.
     """
     senior = ABUELITOS_DB.get(name)
     if not senior:
-        return f"Error: User '{name}' is not registered under VoiceAlert."
-    
+        return f"Error: User '{name}' is not registered under VoiceAlert infrastructure."
+
     clean_input = normalize_text(voice_text)
-    caregiver_phone = senior["caregiver_phone"]
-    word_count = len(voice_text.split())
-    
-    # 1. RUN BEHAVIORAL LEARNING LOOP
-    # Score the check-in against the already-learned profile FIRST, then fold this
-    # check-in in. Learning first would let a late or terse message drag the baseline
-    # toward itself and mask the very anomaly it should raise.
-    analysis = behavioral_ai_engine.analyze_vocal_anomaly(name, voice_text, current_time)
-    profile = behavioral_ai_engine.learn_checkin_baseline(name, current_time, word_count)
+    caregiver_phone = senior["caregiver_routing"]["caregiver_phone"]
 
-    # 2. EMERGENCY TRIGGER FILTER
-    danger_keywords = ["me cai", "me siento mal", "duele", "accidente", "ambulancia", "no me puedo mover"]
+    # 1. RUN BEHAVIORAL PATTERN ANALYSIS FIRST
+    analysis = behavioral_ai_engine.analyze_behavioral_safety(name, current_time, voice_text)
+    # Train the machine learning matrix with this current data point
+    behavioral_ai_engine.train_baseline_data(name, current_time, voice_text)
+
+    # 2. EMERGENCY INTRINSIC KEYWORD SCREENING
+    danger_keywords = ["me cai", "me siento mal", "duele", "accidente", "ambulancia"]
     if any(keyword in clean_input for keyword in danger_keywords):
+        await caregiver_notifier.trigger_caregiver_alert(name, "CRITICAL", voice_text, caregiver_phone)
+        return f"[🚨 CRITICAL] Emergency handling active. Caregiver notified at {caregiver_phone}."
+
+    # 3. ADVANCED BEHAVIORAL ANOMALY FILTER
+    if analysis["is_anomaly"]:
         await caregiver_notifier.trigger_caregiver_alert(
             senior_name=name,
-            alert_type="CRITICAL",
-            raw_message=voice_text,
+            alert_type=analysis["type"],
+            raw_message=analysis["reason"],
             destination_phone=caregiver_phone
         )
-        return f"[🚨 CRITICAL EMERGENCY] Caregiver notified at {caregiver_phone}. Core system activated."
+        return f"[⚠️ BEHAVIORAL WARNING] Anomaly caught: {analysis['reason']} Caregiver dashboard updated."
 
-    # 3. BEHAVIORAL ANOMALY FILTER
-    if analysis["is_behavioral_anomaly"]:
-        # Alert the caregiver about a shift in habits, not an immediate crash
-        await caregiver_notifier.trigger_caregiver_alert(
-            senior_name=name,
-            alert_type="ROUTINE_ANOMALY",
-            raw_message=f"Behavior Shift Detected: {analysis['reason']}",
-            destination_phone=caregiver_phone
-        )
-        return f"[⚠️ BEHAVIORAL ALERT] Habit anomaly found: {analysis['reason']} Caregiver dashboard updated."
-
-    # 4. STANDARD MEDICATION CHECK-IN
-    medication_keywords = ["pastilla", "medicina", "ya me la tome", "check in", "ya quedo"]
+    # 4. STANDARD REPETITIVE MEDICATION CHECK-IN
+    medication_keywords = ["pastilla", "medicina", "ya me la tome", "check in"]
     if any(keyword in clean_input for keyword in medication_keywords):
-        expected_hour = round(profile["expected_checkin_hour"], 1)
-        return f"[SUCCESS] Routine logged: {name} confirmed taking their medication: {senior['medication']}. Expected check-in hour is learned at {expected_hour}."
-        
-    return f"[TRACKING] Routine data entry saved for {name}."
+        return f"[SUCCESS] Routine logged: {name} confirmed taking medication: {senior['medical_baseline']['critical_medication']}."
+
+    return f"[TRACKING] Data logged. Baseline patterns are stable."
 
 if __name__ == "__main__":
     mcp.run()
