@@ -26,4 +26,3 @@ ABUELITOS_DB = {
         }
     }
 }
-
