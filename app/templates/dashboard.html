@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoiceAlert Cloud SaaS - Two-Sided Ecosystem Prototype</title>
+    <!-- Tailwind CSS Engine for Clean Enterprise UI Styling -->
+    <script src="https://jsdelivr.net"></script>
+    <script>
+        // --- LIVE BEHAVIORAL MACHINE LEARNING LOOPS (FRONTEND SIMULATOR) ---
+        let baselines = {
+            avgWakingHour: 8.0,
+            avgWordCount: 12.0,
+            totalLogs: 0
+        };
+
+        function processSeniorCheckIn() {
+            const seniorName = document.getElementById("seniorSelect").value;
+            const checkinTime = document.getElementById("checkinTime").value;
+            const messageText = document.getElementById("messageInput").value.trim();
+            const caregiverPhone = "+52 55 1234 5678";
+            
+            // Clean whitespaces and extract clean word array lengths
+            const wordsList = messageText.split(/\s+/).filter(w => w.length > 0);
+            const wordCount = wordsList.length;
+            const hour = parseInt(checkinTime.split(":")[0]);
+
+            const logList = document.getElementById("activityLog");
+            const alertBanner = document.getElementById("cloudAlertBanner");
+            const statusIndicator = document.getElementById("statusIndicator");
+
+            // Reset Alerts Baseline Styles
+            alertBanner.className = "hidden p-4 rounded-xl mb-4 font-bold border";
+            
+            // 🛡️ SANITIZATION GUARD: Check if empty string or noise input
+            if (wordCount === 0) {
+                alertBanner.innerText = "⚠️ System Notification: Blank input detected. Data block sanitized and skipped.";
+                alertBanner.className = "block bg-slate-100 text-slate-700 border-slate-300 p-4 rounded-xl mb-4 font-bold border animate-pulse";
+                return;
+            }
+
+            // Normalizing text input variables for keyword validation matching
+            const cleanInput = messageText.toLowerCase()
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // Accents stripping
+
+            // 1. CRITICAL EMERGENCY INTERACTION SCANNER
+            const dangerKeywords = ["me cai", "me siento mal", "duele", "accidente", "ambulancia"];
+            const isEmergency = dangerKeywords.some(keyword => cleanInput.includes(keyword));
+
+            if (isEmergency) {
+                statusIndicator.innerText = "CRITICAL EMERGENCY";
+                statusIndicator.className = "px-3 py-1 text-xs font-bold rounded-full bg-red-100 text-red-700";
+                
+                alertBanner.innerText = `🚨 EMERGENCY WARNING SENT TO ${caregiverPhone}: "${messageText}"`;
+                alertBanner.className = "block bg-red-100 text-red-800 border-red-300 p-4 rounded-xl mb-4 font-bold border animate-bounce";
+                
+                appendLogCard(logList, checkinTime, "🔴 EMERGENCY TRIGGER", messageText);
+                return;
+            }
+
+            // 2. RUN BEHAVIORAL SAFETY MATRIX CHECKS AGAINST HISTORICAL LEARNING
+            let status = "NORMAL";
+            let alertMsg = "";
+            let alertClass = "";
+
+            // Anomaly Matrix A: Late Night Sleep cycle Disruption (00:00 - 05:00)
+            if (hour >= 0 && hour < 5) {
+                status = "ANOMALY";
+                alertMsg = `⚠️ INSOMNIA DISTURBANCE REPORTED: Abnormal midnight voice update received at ${checkinTime} AM.`;
+                alertClass = "block bg-purple-100 text-purple-800 border-purple-300 p-4 rounded-xl mb-4 font-bold border";
+            }
+            // Anomaly Matrix B: Delayed waking past historical baseline + 2.5 hours threshold
+            else if (hour > (baselines.avgWakingHour + 2.5)) {
+                status = "ANOMALY";
+                alertMsg = `⚠️ DELAYED WAKING ALERT: Checked in at ${checkinTime}. Senior's learned normal wake window is ${baselines.avgWakingHour.toFixed(1)}:00 AM.`;
+                alertClass = "block bg-amber-100 text-amber-800 border-amber-300 p-4 rounded-xl mb-4 font-bold border";
+            }
+            // Anomaly Matrix C: Severe Speech Volumetric Drop (Confusion/Lethargy Indicator)
+            else if (baselines.totalLogs > 0 && wordCount <= (baselines.avgWordCount * 0.4)) {
+                status = "ANOMALY";
+                alertMsg = `⚠️ VOCAL LETHARGY LOGGED: Abrupt vocabulary length drop (${wordCount} words vs learned average of ${baselines.avgWordCount.toFixed(1)} words).`;
+                alertClass = "block bg-yellow-100 text-yellow-800 border-yellow-300 p-4 rounded-xl mb-4 font-bold border";
+            }
+
+            // Update baseline stats values if daytime valid interaction data parameters are matching
+            if (hour >= 5) {
+                baselines.totalLogs++;
+                const n = baselines.totalLogs;
+                baselines.avgWakingHour = ((baselines.avgWakingHour * (n - 1)) + hour) / n;
+                baselines.avgWordCount = ((baselines.avgWordCount * (n - 1)) + wordCount) / n;
+                
+                // Refresh Dashboard baseline text indicators views
+                document.getElementById("statHour").innerText = `${baselines.avgWakingHour.toFixed(1)}:00 AM`;
+                document.getElementById("statWords").innerText = `${baselines.avgWordCount.toFixed(1)} words`;
+            }
+
+            // Process App Displays updates
+            if (status === "ANOMALY") {
+                statusIndicator.innerText = "BEHAVIOR ANOMALY";
+                statusIndicator.className = "px-3 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-700";
+                alertBanner.innerText = alertMsg;
+                alertBanner.className = alertClass;
+                appendLogCard(logList, checkinTime, "🟡 BEHAVIOR ANOMALY", messageText);
+            } else {
+                statusIndicator.innerText = "STABLE CONNECTION";
+                statusIndicator.className = "px-3 py-1 text-xs font-bold rounded-full bg-green-100 text-green-700";
+                appendLogCard(logList, checkinTime, "💚 ROUTINE OK", `Medication logged successfully: ${messageText}`);
+            }
+
+            // Reset user input field text to clean layout state
+            document.getElementById("messageInput").value = "";
+        }
+
+        function appendLogCard(container, time, statusLabel, text) {
+            const card = document.createElement("div");
+            card.className = "p-3 bg-white border border-slate-100 rounded-lg shadow-2xs text-sm mb-2";
+            card.innerHTML = `<div class="flex justify-between font-semibold mb-1 text-slate-800">
+                                <span>${statusLabel}</span>
+                                <span class="text-xs text-slate-400 font-normal">${time}</span>
+                             </div>
+                             <p class="text-slate-600 text-xs">${text}</p>`;
+            container.insertBefore(card, container.firstChild);
+        }
+    </script>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans p-6 text-slate-900">
+    <div class="max-w-6xl mx-auto">
+        
+        <!-- Header Branding Module Layer -->
+        <header class="mb-8 border-b border-slate-200 pb-4 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">VoiceAlert Core Dashboard</h1>
+                <p class="text-sm text-slate-500">Decoupled Cloud SaaS Client Interface Engine v2.0</p>
+            </div>
+            <span class="bg-blue-50 text-blue-700 border border-blue-200 text-xs px-3 py-1 rounded-md font-medium font-mono">Status: Connected to Cloud Hub</span>
+        </header>
+
+        <!-- Main Apps Containers Grid Frame -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            
+            <!-- APPLICATION 1: THE SENIOR DAY-BY-DAY INTERACTION TRACKER TRACKER -->
+            <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <div class="flex items-center gap-2 mb-6">
+                    <span class="text-xl">🧓</span>
+                    <h2 class="text-lg font-bold text-slate-800">VoiceAlert Senior Tracker</h2>
+                </div>
+                <p class="text-xs text-slate-500 mb-4 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    Simulates frictionless voice recordings or messages received from the elder individual's cell phone. Use this side to submit messages at various times.
+                </p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Select Senior Profile</label>
+                        <select id="seniorSelect" class="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:border-blue-500">
+                            <option value="Don Manuel">Don Manuel (72yo, Ecatepec, MX)</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Simulation Time</label>
+                            <input type="time" id="checkinTime" value="08:00" class="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Assigned Sitter Profile</label>
+                            <div class="bg-slate-50 border border-slate-100 p-2 text-xs font-medium rounded-lg text-slate-600 mt-0.5">
+                                Guillermo Pineda (Son)
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
