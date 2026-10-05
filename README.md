@@ -13,23 +13,44 @@ voicealert-mcp/
 ├── .github/
 │   └── workflows/          # Automated Cloud Testing CI/CD (GitHub Actions)
 ├── app/
-│   ├── __init__.py
-│   ├── main.py             # Central Entry Point (MCP v2.0 Server Core Brain)
+│   ├── main.py             # Central Entry Point - MCP v2.0 Server Core Brain (the learning API)
+│   ├── server.py           # Public HTTP surface for provisioning + the son dashboard
 │   ├── core/
-│   │   ├── __init__.py
 │   │   ├── config.py       # Safe .env variable parser & security controller
+│   │   ├── persistence.py  # JSON-backed per-senior baseline + alert history
 │   │   └── behavioral_ai.py# Real-time Moving Average Behavioral Analytics AI Engine
 │   ├── database/
-│   │   ├── __init__.py
 │   │   └── mock_db.py      # Low-overhead structured patient & user profile schema
-│   └── tools/
-│       ├── __init__.py
-│       └── emergency.py    # Caregiver cloud notification channels & webhook routers
+│   ├── tools/
+│   │   └── emergency.py    # Caregiver cloud notification channels & webhook routers
+│   └── templates/
+│       ├── provisioning.html # Public commercial-offer / senior signup page
+│       └── dashboard.html    # Son/caregiver monitoring dashboard
 ├── tests/
 │   └── test_mcp.py         # Automated multi-day behavior simulation testing suite
 ├── .env                    # Local runtime hidden keys (Ignored by Git)
 ├── .gitignore              # Defines file exclusions from global cloud syncing
 └── README.md               # Technical Blueprint and System documentation
+```
+
+The four modules map to: (1) the MCP API in `app/main.py`, (2) the per-individual
+old-man tracker in `app/core/behavioral_ai.py` (+ persistence), (3) the son monitor
+exposed as the `son_view` MCP tool and `/api/son/{name}` HTTP route, and (4) the
+provisioning module (`provision_senior` tool + `/api/provision` + `provisioning.html`).
+
+## Running
+
+```bash
+# Isolated MCP learning API (consumed by tracker/son clients over stdio):
+python3 app/main.py
+
+# Public HTTP provisioning + son dashboard (module 4 + 3):
+python3 -m uvicorn app.server:app --host 0.0.0.0 --port 8000
+# GET  /                 -> provisioning page (commercial offer)
+# GET  /dashboard        -> son monitoring dashboard
+# POST /api/provision    -> onboard a senior (form/JSON)
+# POST /api/checkin     -> route a voice note through the MCP learning API
+# GET  /api/son/{name}   -> learned baseline + recent alerts for the son
 ```
 
 ---
