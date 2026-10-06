@@ -1,39 +1,38 @@
 # app/server.py
-"""Public HTTP surface for the VoiceAlert Cloud SaaS provisioning (module 4)
-and the son's dashboard (module 3).
+"""Public HTTP surface for VoiceAlert Cloud (modules 1-4) over a real DB.
 
-The learning API itself stays an isolated MCP server (app.main). This FastAPI
-process only re-exposes the same engine functions over HTTP so the public
-provisioning page and the son dashboard can consume them over the network.
+Run locally:
+    python -m uvicorn app.server:app --host 0.0.0.0 --port 8000
+Then:
+    GET  /                     -> provisioning page (commercial offer + signup form)
+    GET  /dashboard            -> son monitoring dashboard
+    POST /api/provision        -> onboard a senior (form/JSON)
+    POST /api/subscribe        -> phone-based subscription (module 4 'by phone')
+    POST /api/checkin          -> route a voice note through the learning API
+    GET  /api/son/{name}       -> learned baseline + recent alerts
 """
+import asyncio
 import os
-from typing import List
-
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
-from app.main import verify_senior_routine, son_view, provision_senior
-from app.tools.emergency import caregiver_notifier
-from app.database.mock_db import ABUELITOS_DB
+from app.core.service import get_service
+from app.storage.db import DEFAULT_MEDICATION_WINDOW
 
 _TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
 
 
 def _run(coro):
-    """Run the async MCP API coroutines synchronously inside HTTP handlers."""
-    import asyncio
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            return asyncio.ensure_future(coro)
+            return asyncio.run(coro)
         return loop.run_until_complete(coro)
     except RuntimeError:
         return asyncio.run(coro)
 
 
 app = FastAPI(title="VoiceAlert Cloud", version="2.0")
-app.mount("/static", StaticFiles(directory=_TEMPLATES_DIR), name="static")
 
 
 @app.get("/", response_class=FileResponse)
@@ -48,10 +47,10 @@ def dashboard_page():
 
 @app.get("/api/son/{name}")
 def get_son_view(name: str):
-    view = _run(son_view(name))
-    if view.startswith("Error"):
-        raise HTTPException(status_code=404, detail=view)
-    return JSONResponse({"name": name, "dashboard": view})
+    senior = get_service().backend.get_senior(name)
+    if senior is None:
+        raise HTTPException(status_code=404, detail=f"Senior '{name}' not found")
+    return JSONResponse({"name": name, "dashboard": get_service().son_view(name)})
 
 
 @app.post("/api/provision")
@@ -63,32 +62,33 @@ def api_provision(
     caregiver_phone: str = Form(...),
     son_name: str = Form(...),
     critical_medication: str = Form(...),
-    expected_intake_window: str = Form("08:00 AM - 09:30 AM"),
-    max_allowed_delay_hours: float = Form(2.5),
-    speech_drop_percentage: float = Form(0.40),
+    expected_intake_window: str = Form(DEFAULT_MEDICATION_WINDOW),
 ):
-    result = _run(
-        provision_senior(
-            name=name, age=age, city=city, living_situation=living_situation,
-            caregiver_phone=caregiver_phone, son_name=son_name,
-            critical_medication=critical_medication,
-            expected_intake_window=expected_intake_window,
-            max_allowed_delay_hours=max_allowed_delay_hours,
-            speech_drop_percentage=speech_drop_percentage,
-        )
+    result = get_service().provision_senior(
+        name, age, city, living_situation, caregiver_phone, son_name,
+        critical_medication, expected_intake_window,
     )
     if result.startswith("Error"):
         raise HTTPException(status_code=409, detail=result)
-    return JSONResponse({"result": result, "profile": ABUELITOS_DB.get(name)})
+    return JSONResponse({"result": result})
+
+
+@app.post("/api/subscribe")
+def api_subscribe(phone: str = Form(...), name: str = Form(None), tier: str = Form("TIER_1_TRIAL"),
+                  son_name: str = Form(None), caregiver_phone: str = Form(None)):
+    record = get_service().subscribe(phone, name=name, tier=tier, son_name=son_name, caregiver_phone=caregiver_phone)
+    return JSONResponse({"result": "[SUBSCRIBED] Phone-based provisioning recorded.", "subscription": record})
 
 
 @app.post("/api/checkin")
 def api_checkin(name: str = Form(...), voice_text: str = Form(...), current_time: str = Form("08:30")):
-    result = _run(verify_senior_routine(name, voice_text, current_time))
+    svc = get_service()
+    if svc.backend.get_senior(name) is None:
+        raise HTTPException(status_code=404, detail=f"Senior '{name}' not found")
+    result = _run(svc.process_checkin(name, voice_text, current_time))
     return JSONResponse({"result": result})
 
 
 if __name__ == "__main__":
-    # uvicorn app.server:app --host 0.0.0.0 --port 8000
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))

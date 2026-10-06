@@ -31,3 +31,8 @@ jobs:
         export PYTHONPATH=".:$PYTHONPATH"
         python3 tests/test_mcp.py
 
+    - name: Run Real-DB Pipeline Tests (in-memory SQLite)
+      run: |
+        export PYTHONPATH=".:$PYTHONPATH"
+        python3 tests/test_db_pipeline.py
+

@@ -27,7 +27,28 @@
                 <li>Per-individual, day-by-day learning baseline persisted across restarts.</li>
                 <li>Public provisioning: onboard seniors and pair a caregiver in one step.</li>
             </ul>
-            <p class="mt-3 text-sm text-slate-500">Commercial offer applied automatically on submit below.</p>
+            <p class="mt-3 text-sm text-slate-500">Commercial offer Tier-1 (Cloud SaaS, basic monitoring) applied automatically on subscribe below.</p>
+
+            <!-- Phone-based provisioning (works on Android and Apple phones) -->
+            <form id="subscribeForm" class="mt-5 flex flex-col sm:flex-row gap-3">
+                <label class="sr-only" for="subscribePhone">Phone number</label>
+                <input type="tel" id="subscribePhone" name="phone" placeholder="+52 55 1234 5678" required
+                       class="flex-1 bg-white border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:border-blue-500">
+                <button type="submit" class="bg-blue-600 text-white font-semibold px-5 rounded-lg hover:bg-blue-700 transition">Subscribe by Phone</button>
+            </form>
+            <pre id="subscribeResult" class="mt-3 bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-700 min-h-[36px] hidden"></pre>
+            <script>
+                const sf = document.getElementById("subscribeForm");
+                const sr = document.getElementById("subscribeResult");
+                sf.onsubmit = async (e) => {
+                    e.preventDefault();
+                    try {
+                        const res = await fetch("/api/subscribe", { method: "POST", body: new FormData(sf) });
+                        sr.textContent = await res.text();
+                    } catch (err) { sr.textContent = "Error: " + err; }
+                    sr.classList.remove("hidden");
+                };
+            </script>
         </section>
 
         <!-- Provisioning Form -->

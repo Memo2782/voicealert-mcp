@@ -1,5 +1,5 @@
 # app/core/behavioral_ai.py
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from app.database.mock_db import ABUELITOS_DB
 from app.core.persistence import store
 
@@ -15,26 +15,37 @@ _DEFAULT_THRESHOLDS = {
 
 
 class ExtendedBehavioralEngine:
-    """One profile per senior (keyed by name in the shared ABUELITOS_DB), so each
-    individual is learned and scored independently across check-ins."""
+    """Tracks one behavioral profile per senior.
 
-    def __init__(self):
-        self.profiles = ABUELITOS_DB
-        # Restore any persisted baselines/thresholds so learning is continuous.
-        for name, senior in self.profiles.items():
-            saved = store.profiles.get(name, {})
-            if saved:
-                senior.setdefault("learned_behavioral_baselines", dict(_DEFAULT_BASELINE))
-                senior["learned_behavioral_baselines"].update(
-                    saved.get("learned_behavioral_baselines", {})
-                )
+    A senior may be backed by the JSON state store (default) or by a real
+    SQLite backend (app.storage.db.SQLiteBackend). When backed by a database
+    the in-memory profile dict is seeded from the DB and every training step
+    writes baselines back, so day-by-day learning survives restarts.
+    """
+
+    def __init__(self, backend=None):
+        self.backend = backend
+        if backend is None:
+            self.profiles = ABUELITOS_DB
+            # Restore any persisted baselines so learning is continuous.
+            for name, senior in self.profiles.items():
+                saved = store.profiles.get(name, {}).get("learned_behavioral_baselines")
+                if saved:
+                    senior.setdefault("learned_behavioral_baselines", dict(_DEFAULT_BASELINE))
+                    senior["learned_behavioral_baselines"].update(saved)
+        else:
+            self.profiles = backend.load_seniors()
 
     def _persist(self) -> None:
-        store.profiles = {
-            name: {"learned_behavioral_baselines": senior["learned_behavioral_baselines"]}
-            for name, senior in self.profiles.items()
-        }
-        store.save()
+        if self.backend is None:
+            store.profiles = {
+                name: {"learned_behavioral_baselines": senior["learned_behavioral_baselines"]}
+                for name, senior in self.profiles.items()
+            }
+            store.save()
+        else:
+            for name, senior in self.profiles.items():
+                self.backend.upsert_baselines(name, senior.get("learned_behavioral_baselines", dict(_DEFAULT_BASELINE)))
 
     def train_baseline_data(self, name: str, checkin_time_str: str, message_text: str) -> Dict[str, Any]:
         """
@@ -120,4 +131,7 @@ class ExtendedBehavioralEngine:
         return {"is_anomaly": False, "type": "NORMAL", "reason": "Behavior consistent with baseline patterns."}
 
 
-behavioral_ai_engine = ExtendedBehavioralEngine()
+# Module-level singleton: real DB when VA_DB_PATH is set, else JSON store.
+from app.storage.db import env_backend  # noqa: E402
+
+behavioral_ai_engine = ExtendedBehavioralEngine(backend=env_backend())
